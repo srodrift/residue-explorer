@@ -397,6 +397,7 @@ async function load(query){
       return {P,agree: tot? m/tot : 0, covered: tot/L};
     }
 
+    const rejects=[];
     let cands=[];
     try{
       const bs=await jget('https://www.ebi.ac.uk/pdbe/api/mappings/best_structures/'+acc);
@@ -413,10 +414,13 @@ async function load(query){
       }catch(e){continue}
       if(!txt)continue;
       const v=verify(txt,ch,off);
+      if(!(v && v.agree>=0.9 && v.covered>=0.2)){
+        rejects.push({id,chain:ch,agree:v?v.agree:0,covered:v?v.covered:0});
+      }
       if(v && v.agree>=0.9 && v.covered>=0.2){
         pdbId=id;pdbChain=ch;offset=off;coordText=txt;parsed=v.P;agree=v.agree;
         structSrc={kind:'experimental',id,chain:ch,resolution:h.resolution,
-                   coverage:h.coverage,agreement:v.agree};
+                   coverage:h.coverage,agreement:v.agree,rejects:rejects.slice()};
         step('struct','done','\u2713 PDB '+id+' chain '+ch+
           ' \u00b7 '+Math.round(v.agree*100)+'% sequence agreement');
         break;
@@ -435,8 +439,7 @@ async function load(query){
       const v=verify(coordText,'A',0);
       parsed=v?v.P:parsePDB(coordText); agree=v?v.agree:0;
       structSrc={kind:'predicted',id:e0.entryId,chain:'A',plddt:e0.globalMetricValue,
-                 version:e0.latestVersion,agreement:agree,
-                 rejected:cands.length?cands[0].pdb_id.toUpperCase():null};
+                 version:e0.latestVersion,agreement:agree,rejects:rejects};
       step('struct','done','\u2713 AlphaFold '+e0.entryId+' (predicted)'+
         (cands.length?' \u2014 experimental hits failed verification':''));
     }
@@ -521,7 +524,17 @@ function render(){
       ? 'structure <code>'+ST.structSrc.id+'</code> chain '+ST.structSrc.chain+
         (ST.structSrc.resolution?' &middot; '+ST.structSrc.resolution+' \u00c5':'')+
         ' &middot; '+Math.round(ST.agreement*100)+'% sequence match'
-      : 'predicted structure <code>'+ST.structSrc.id+'</code>'}</div>`;
+      : 'predicted structure <code>'+ST.structSrc.id+'</code>'+
+        (ST.structSrc.plddt?' &middot; global pLDDT '+ST.structSrc.plddt:'')}</div>`;
+  const rj=ST.structSrc.rejects||[];
+  if(rj.length){
+    t.innerHTML+=`<div class="meta" style="color:#ffb020;margin-top:8px">
+      Rejected by the sequence check: ${rj.map(r=>`<code>${r.id}</code> chain ${r.chain} &mdash; `+
+      Math.round(r.agree*100)+'% agreement').join('; ')}.
+      ${ST.structSrc.kind==='predicted'
+        ? 'No experimental entry matched this sequence, so a predicted model is used and distances are measured on it.'
+        : 'A later candidate passed and is in use.'}</div>`;
+  }
   if(ST.coverage<0.8){
     const pct=Math.round(ST.coverage*100);
     t.innerHTML+=`<div class="meta" style="color:#ffb020;margin-top:8px">
