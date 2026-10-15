@@ -1,0 +1,743 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Residue explorer</title>
+<meta name="description" content="Type any UniProt accession. Every number is computed in your browser from the fetched sequence and structure.">
+<script src="https://cdn.jsdelivr.net/npm/3dmol@2.1.0/build/3Dmol-min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#070a10;--panel:#0e141e;--line:#1d2635;--ink:#e9eef6;--dim:#93a1b4;--faint:#5c6a7d;
+--acc:#ffb020;--ok:#49d0b0;--cool:#6ea8ff;--vio:#b79bff;--bad:#ff6b6b}
+body{background:var(--bg);color:var(--ink);
+ font:400 16px/1.6 ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+ -webkit-font-smoothing:antialiased}
+a{color:var(--cool)}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px 70px}
+header{padding:30px 0 22px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+header h1{font-size:20px;font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+header h1 span{color:var(--faint);font-weight:400}
+.search{display:flex;gap:9px;flex:1;min-width:300px}
+.search input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+ color:var(--ink);font:400 15px ui-sans-serif;padding:11px 15px;outline:none}
+.search input:focus{border-color:#3d5273}
+.search button{background:var(--acc);border:0;border-radius:10px;color:#1a1206;
+ font:650 14.5px ui-sans-serif;padding:11px 20px;cursor:pointer;white-space:nowrap}
+.search button:disabled{opacity:.45;cursor:default}
+.ex{display:flex;gap:7px;flex-wrap:wrap;margin:-6px 0 20px}
+.ex b{color:var(--faint);font:500 12.5px ui-sans-serif;align-self:center;margin-right:3px}
+.ex button{background:none;border:1px solid var(--line);border-radius:999px;color:var(--dim);
+ font:500 12.5px ui-sans-serif;padding:5px 12px;cursor:pointer}
+.ex button:hover{border-color:#3d5273;color:var(--ink)}
+
+#status{padding:16px 18px;border-radius:12px;background:var(--panel);border:1px solid var(--line);
+ color:var(--dim);font-size:14.5px;margin-bottom:20px;display:none}
+#status.show{display:block}
+#status.err{border-color:rgba(255,107,107,.45);color:#ffb3b3}
+.steps{display:flex;gap:16px;flex-wrap:wrap;margin-top:9px;font-size:13px;color:var(--faint)}
+.steps i{font-style:normal}
+.steps i.done{color:var(--ok)} .steps i.fail{color:var(--bad)} .steps i.run{color:var(--acc)}
+
+.titleblock{margin-bottom:18px;display:none}
+.titleblock.show{display:block}
+.titleblock h2{font-size:29px;font-weight:650;letter-spacing:-.02em;line-height:1.2}
+.titleblock .meta{color:var(--dim);font-size:14.5px;margin-top:6px}
+.titleblock .meta code{font-family:ui-monospace,Menlo,monospace;color:var(--ink)}
+
+.main{display:grid;grid-template-columns:1fr 400px;gap:24px;align-items:start;display:none}
+.main.show{display:grid}
+@media(max-width:1040px){.main.show{grid-template-columns:1fr}}
+
+.modes{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px}
+.modes button{background:var(--panel);border:1px solid var(--line);color:var(--dim);
+ font:500 13px ui-sans-serif;padding:8px 14px;border-radius:999px;cursor:pointer}
+.modes button:hover:not(:disabled){border-color:#3d5273;color:var(--ink)}
+.modes button.on{color:#06090f;font-weight:650;border-color:transparent}
+.modes button:disabled{opacity:.33;cursor:default}
+.ramp{display:flex;align-items:center;gap:9px;color:var(--faint);font-size:12px;margin-bottom:11px}
+.ramp .bar{width:160px;height:8px;border-radius:999px}
+
+.track{position:relative}
+.ribbon{display:grid;gap:2px;height:9px;margin-bottom:4px}
+.rb{border-radius:2px}
+.grid{display:grid;gap:3px}
+.res{aspect-ratio:1;border-radius:4px;display:flex;align-items:center;justify-content:center;
+ font:650 12px/1 ui-monospace,Menlo,monospace;cursor:pointer;border:1.5px solid transparent;
+ position:relative}
+.res:hover{transform:scale(1.3);z-index:4;border-color:#fff}
+.res.sel{border-color:#fff;transform:scale(1.18);z-index:3;
+ box-shadow:0 0 0 3px rgba(255,255,255,.3)}
+.res.sel:after{content:"";position:absolute;inset:-7px;border:1.5px solid #fff;border-radius:7px;
+ opacity:.55}
+/* compact mode for long chains */
+.grid.compact{grid-template-columns:none;display:flex;gap:1px;height:46px}
+.grid.compact .res{aspect-ratio:auto;flex:1;min-width:0;font-size:0;border-radius:1.5px;
+ border-width:0}
+.grid.compact .res.sel{transform:scaleY(1.14);box-shadow:none;outline:2px solid #fff;outline-offset:1px}
+.grid.compact .res.sel:after{display:none}
+.ruler{display:flex;justify-content:space-between;color:var(--faint);font-size:11.5px;margin-top:5px}
+
+.vwrap{position:relative;height:420px;background:#0b111a;border:1px solid var(--line);
+ border-radius:14px;overflow:hidden;margin-top:18px}
+#viewer{width:100%;height:100%}
+.vmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+ text-align:center;padding:38px;color:var(--dim);font-size:14.5px;line-height:1.6}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 13px;
+ font-size:12.5px;color:var(--dim);cursor:pointer}
+.chip:hover{border-color:#3d5273;color:var(--ink)}
+.chip.on{border-color:var(--acc);color:var(--acc)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:19px 21px}
+.card+.card{margin-top:14px}
+.big{display:flex;align-items:baseline;gap:11px}
+.big .aa{font:700 38px/1 ui-monospace,Menlo,monospace;letter-spacing:-.02em}
+.big .nm{font-size:16.5px;color:var(--dim)}
+.tag{display:inline-block;margin-top:9px;font-size:11.5px;letter-spacing:.06em;padding:4px 10px;
+ border-radius:999px;background:#18212e;color:var(--dim)}
+.tag.acc{background:rgba(255,176,32,.15);color:var(--acc)}
+.mrow{display:grid;grid-template-columns:1fr auto;gap:8px 12px;margin-top:16px;font-size:13.5px}
+.mrow .k{color:var(--faint)}
+.mrow .v{text-align:right;font-weight:650}
+.mrow .src{grid-column:1/3;margin-top:-4px}
+.mbar{grid-column:1/3;height:5px;border-radius:3px;background:#18202c;overflow:hidden}
+.mbar i{display:block;height:100%;border-radius:3px}
+.why{background:none;border:0;color:var(--faint);font:500 11.5px ui-sans-serif;cursor:pointer;
+ padding:0;text-decoration:underline dotted;text-underline-offset:3px}
+.why:hover{color:var(--cool)}
+.story{margin-top:15px;padding-top:13px;border-top:1px solid var(--line);font-size:13.5px;
+ line-height:1.6;color:var(--dim)}
+.vlist{margin-top:12px;font-size:12.6px;max-height:150px;overflow:auto}
+.vlist div{padding:6px 0;border-top:1px solid #182130;color:var(--dim)}
+.vlist b{color:var(--ink);font-family:ui-monospace,Menlo,monospace}
+
+.pop{position:fixed;z-index:50;max-width:330px;background:#121a26;border:1px solid #2b3a4f;
+ border-radius:12px;padding:15px 17px;font-size:13px;line-height:1.55;color:var(--dim);
+ box-shadow:0 14px 40px rgba(0,0,0,.6);display:none}
+.pop.show{display:block}
+.pop h5{color:var(--ink);font-size:13.5px;margin-bottom:7px}
+.pop code{font-family:ui-monospace,Menlo,monospace;color:var(--cool);font-size:12.3px}
+.pop .x{position:absolute;top:9px;right:12px;cursor:pointer;color:var(--faint)}
+
+footer{margin-top:40px;padding-top:22px;border-top:1px solid var(--line);color:var(--faint);
+ font-size:13px;line-height:1.75;display:none}
+footer.show{display:block}
+footer b{color:var(--dim)}
+.kbd{display:inline-block;background:#18212e;border:1px solid #2b3a4f;border-radius:5px;
+ padding:1px 6px;font:500 12px ui-monospace,Menlo,monospace;color:var(--dim)}
+</style></head><body>
+<div class="wrap">
+
+<header>
+  <h1>Residue explorer <span>&middot; any protein</span></h1>
+  <div class="search">
+    <input id="q" placeholder="UniProt accession or gene name &mdash; P68871, TP53, lysozyme" spellcheck="false">
+    <button id="go">Load</button>
+  </div>
+</header>
+<div class="ex"><b>Try</b>
+  <button data-q="P68871">Haemoglobin &beta;</button>
+  <button data-q="P69905">Haemoglobin &alpha;</button>
+  <button data-q="P02144">Myoglobin</button>
+  <button data-q="P00698">Lysozyme</button>
+  <button data-q="P04637">p53</button>
+  <button data-q="P42336">PI3K&alpha;</button>
+</div>
+
+<div id="status"></div>
+<div id="titleblock" class="titleblock"></div>
+
+<div id="main" class="main">
+  <div>
+    <div class="modes">
+      <button class="on" data-m="lig">Distance to ligand</button>
+      <button data-m="rsa">Surface exposure</button>
+      <button data-m="var">Known variants</button>
+      <button data-m="kd">Water-loving &harr; greasy</button>
+    </div>
+    <div class="ramp"><span id="rlo"></span>
+      <div class="bar" id="rampbar"></div><span id="rhi"></span>
+      <span style="margin-left:6px" id="rname"></span></div>
+    <div class="track">
+      <div class="ribbon" id="ribbon"></div>
+      <div class="grid" id="grid"></div>
+      <div class="ruler" id="ruler"></div>
+    </div>
+    <div class="vwrap">
+      <div id="viewer"></div>
+      <div class="vmsg" id="vmsg">Loading structure&hellip;</div>
+    </div>
+    <div class="chips">
+      <div class="chip on" data-m="spin">Spin</div>
+      <div class="chip" data-m="stop">Stop</div>
+      <div class="chip" data-m="zoom">Zoom to selected</div>
+      <div class="chip" data-m="out">Whole molecule</div>
+      <div class="chip" data-m="surf">Show surface</div>
+    </div>
+  </div>
+  <div><div class="card" id="card"></div></div>
+</div>
+
+<footer id="foot"></footer>
+</div>
+<div class="pop" id="pop"></div>
+<script>
+/* ============================================================
+   Protein residue explorer — fetches and computes in-browser.
+   Sources: UniProt REST, PDBe SIFTS mappings, RCSB coordinates,
+   AlphaFold DB fallback. No server, no build step.
+   ============================================================ */
+const AA3={ALA:'A',ARG:'R',ASN:'N',ASP:'D',CYS:'C',GLN:'Q',GLU:'E',GLY:'G',HIS:'H',ILE:'I',
+LEU:'L',LYS:'K',MET:'M',PHE:'F',PRO:'P',SER:'S',THR:'T',TRP:'W',TYR:'Y',VAL:'V',
+MSE:'M',SEC:'U',PYL:'O'};
+const AANAME={A:'Alanine',R:'Arginine',N:'Asparagine',D:'Aspartate',C:'Cysteine',Q:'Glutamine',
+E:'Glutamate',G:'Glycine',H:'Histidine',I:'Isoleucine',L:'Leucine',K:'Lysine',M:'Methionine',
+F:'Phenylalanine',P:'Proline',S:'Serine',T:'Threonine',W:'Tryptophan',Y:'Tyrosine',V:'Valine',
+U:'Selenocysteine',O:'Pyrrolysine',X:'Unknown'};
+const KD={A:1.8,R:-4.5,N:-3.5,D:-3.5,C:2.5,Q:-3.5,E:-3.5,G:-0.4,H:-3.2,I:4.5,L:3.8,K:-3.9,
+M:1.9,F:2.8,P:-1.6,S:-0.8,T:-0.7,W:-0.9,Y:-1.3,V:4.2,U:2.5,O:-3.9,X:0};
+/* Tien et al. 2013 theoretical Gly-X-Gly maxima (A^2) */
+const MAXASA={A:129,R:274,N:195,D:193,C:167,E:223,Q:225,G:104,H:224,I:197,L:201,K:236,M:224,
+F:240,P:159,S:155,T:172,W:285,Y:263,V:174,U:167,O:236,X:200};
+const VDW={C:1.70,N:1.55,O:1.52,S:1.80,P:1.80,SE:1.90,F:1.47,CL:1.75,BR:1.85,I:1.98,
+FE:2.00,ZN:1.39,MG:1.73,CA:2.00,MN:2.00,CU:1.40,NA:2.27,K:2.75,H:1.20};
+const WATER=new Set(['HOH','DOD','WAT','H2O']);
+const PROBE=1.4;
+
+const S=id=>document.getElementById(id);
+let ST={};                       /* current protein state */
+let mode='lig', sel=1, viewer=null, prevSel=null, surfOn=false;
+
+/* ---------- colour ---------- */
+const RAMPS={
+ lig :{label:'Distance to ligand',unit:' \u00c5',
+       ramp:[[253,231,37],[122,209,81],[34,168,132],[42,120,142],[64,67,135],[68,1,84]]},
+ rsa :{label:'Surface exposure',unit:'%',
+       ramp:[[16,24,34],[32,74,106],[64,142,180],[132,205,224],[226,245,252]]},
+ var :{label:'Known variants',unit:'',
+       ramp:[[20,27,38],[70,52,96],[128,70,130],[193,96,120],[255,176,32]]},
+ kd  :{label:'Water-loving \u2194 greasy',unit:'',
+       ramp:[[110,168,255],[150,195,235],[225,232,240],[240,200,140],[255,176,32]]}};
+function lerp(R,t){t=Math.max(0,Math.min(1,t));const x=t*(R.length-1),
+ i=Math.min(Math.floor(x),R.length-2),f=x-i,a=R[i],b=R[i+1];
+ return [Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)]}
+function val(i){const v=ST.vals[mode];return v?v[i]:null}
+function norm(i){const m=ST.range[mode],x=val(i);
+ if(x===null||x===undefined||!m)return null;
+ return (x-m[0])/((m[1]-m[0])||1)}
+function rgb(i){const t=norm(i);if(t===null)return [58,70,92];return lerp(RAMPS[mode].ramp,t)}
+function css(i){const c=rgb(i);return `rgb(${c[0]},${c[1]},${c[2]})`}
+function hexc(c){return '#'+c.map(v=>v.toString(16).padStart(2,'0')).join('')}
+function hexQ(i){const t=norm(i);if(t===null)return '#3a465c';
+ return hexc(lerp(RAMPS[mode].ramp,Math.round(t*18)/18))}
+function lum(i){const c=rgb(i);return (0.299*c[0]+0.587*c[1]+0.114*c[2])/255}
+
+/* ---------- geometry ---------- */
+function parsePDB(text){
+  const atoms=[],het=[],chains={};
+  for(const line of text.split('\n')){
+    const rec=line.slice(0,6);
+    if(rec!=='ATOM  '&&rec!=='HETATM')continue;
+    const alt=line[16];
+    if(alt!==' '&&alt!=='A')continue;
+    const resn=line.slice(17,20).trim(), ch=line.slice(21,22),
+          seqs=line.slice(22,27).trim(),
+          x=parseFloat(line.slice(30,38)),y=parseFloat(line.slice(38,46)),
+          z=parseFloat(line.slice(46,54));
+    if(!isFinite(x)||!isFinite(y)||!isFinite(z))continue;
+    let el=line.slice(76,78).trim().toUpperCase();
+    if(!el)el=(line.slice(12,16).trim()[0]||'C').toUpperCase();
+    const a={resn,ch,seq:seqs,x,y,z,el};
+    if(rec==='HETATM'&&!WATER.has(resn)&&!AA3[resn]) het.push(a);
+    else if(AA3[resn]){atoms.push(a);(chains[ch]=chains[ch]||[]).push(a)}
+  }
+  return {atoms,het,chains};
+}
+function minDistToHet(resAtoms,het){
+  let best=Infinity;
+  for(const a of resAtoms)for(const b of het){
+    const d=(a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2;
+    if(d<best)best=d;
+  }
+  return best===Infinity?null:Math.sqrt(best);
+}
+/* Shrake-Rupley SASA, golden-spiral sphere sampling, grid neighbour search */
+function sasa(atoms,nPoints){
+  const n=atoms.length, pts=[];
+  const ga=Math.PI*(3-Math.sqrt(5));
+  for(let k=0;k<nPoints;k++){
+    const yy=1-(k/(nPoints-1))*2, r=Math.sqrt(Math.max(0,1-yy*yy)), th=ga*k;
+    pts.push([Math.cos(th)*r,yy,Math.sin(th)*r]);
+  }
+  const rad=atoms.map(a=>(VDW[a.el]||1.70)+PROBE);
+  const maxR=Math.max(...rad), cell=2*maxR;
+  const key=(i,j,k)=>i+','+j+','+k, gmap=new Map();
+  for(let i=0;i<n;i++){
+    const a=atoms[i],k=key(Math.floor(a.x/cell),Math.floor(a.y/cell),Math.floor(a.z/cell));
+    if(!gmap.has(k))gmap.set(k,[]);gmap.get(k).push(i);
+  }
+  const out=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const a=atoms[i],ri=rad[i];
+    const ci=Math.floor(a.x/cell),cj=Math.floor(a.y/cell),ck=Math.floor(a.z/cell);
+    const nb=[];
+    for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++)for(let dk=-1;dk<=1;dk++){
+      const arr=gmap.get(key(ci+di,cj+dj,ck+dk));if(!arr)continue;
+      for(const j of arr){
+        if(j===i)continue;
+        const b=atoms[j],dd=(a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2;
+        if(dd<(ri+rad[j])**2)nb.push(j);
+      }
+    }
+    let acc=0;
+    for(const p of pts){
+      const px=a.x+ri*p[0],py=a.y+ri*p[1],pz=a.z+ri*p[2];
+      let free=true;
+      for(const j of nb){
+        const b=atoms[j];
+        if((px-b.x)**2+(py-b.y)**2+(pz-b.z)**2<rad[j]*rad[j]){free=false;break}
+      }
+      if(free)acc++;
+    }
+    out[i]=4*Math.PI*ri*ri*acc/nPoints;
+  }
+  return out;
+}
+
+/* ---------- fetch ---------- */
+const step=(id,cls,txt)=>{const e=S('s-'+id);if(e){e.className=cls;if(txt)e.textContent=txt}};
+function showStatus(html,err){const s=S('status');s.innerHTML=html;
+ s.className='show'+(err?' err':'')}
+async function jget(url){
+  const r=await fetch(url,{headers:{'Accept':'application/json'}});
+  if(!r.ok)throw new Error(url.split('/')[2]+' returned '+r.status);
+  return r.json();
+}
+
+async function resolveAccession(q){
+  q=q.trim();
+  if(/^[OPQ][0-9][A-Z0-9]{3}[0-9]$/i.test(q)||/^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$/i.test(q))
+    return q.toUpperCase();
+  const d=await jget('https://rest.uniprot.org/uniprotkb/search?query='+
+    encodeURIComponent(q+' AND reviewed:true')+'&fields=accession&format=json&size=1');
+  if(!d.results||!d.results.length)throw new Error('No reviewed UniProt entry matches "'+q+'"');
+  return d.results[0].primaryAccession;
+}
+
+async function load(query){
+  S('go').disabled=true;
+  S('main').classList.remove('show');S('titleblock').classList.remove('show');
+  S('foot').classList.remove('show');
+  showStatus('Loading&hellip;<div class="steps">'+
+    ['uniprot|UniProt entry','struct|structure mapping','coords|coordinates',
+     'calc|geometry \u0026 exposure'].map(s=>{const [k,l]=s.split('|');
+       return `<i id="s-${k}">\u25cb ${l}</i>`}).join('')+'</div>');
+  try{
+    const acc=await resolveAccession(query);
+    step('uniprot','run','\u25cf UniProt entry');
+    const u=await jget('https://rest.uniprot.org/uniprotkb/'+acc+'.json');
+    const seq=u.sequence.value, L=seq.length;
+    step('uniprot','done','\u2713 UniProt '+acc+' ('+L+' aa)');
+
+    /* annotations */
+    const feats=u.features||[];
+    const binding={},variants={},helix=[];
+    for(const f of feats){
+      const st=f.location?.start?.value,en=f.location?.end?.value;
+      if(!st)continue;
+      if(f.type==='Binding site'){
+        for(let p=st;p<=(en||st);p++)
+          binding[p]={ligand:f.ligand?.name||'ligand',desc:f.description||''};
+      }else if(f.type==='Natural variant'){
+        const a=f.alternativeSequence||{};
+        (variants[st]=variants[st]||[]).push({
+          orig:a.originalSequence||seq[st-1]||'',
+          alt:(a.alternativeSequences||[''])[0]||'',desc:f.description||''});
+      }else if(f.type==='Helix'){helix.push([st,en||st])}
+    }
+
+    /* structure mapping via PDBe SIFTS */
+    step('struct','run','\u25cf structure mapping');
+    let pdbId=null,pdbChain=null,offset=0,structSrc=null,coordText=null;
+    try{
+      const bs=await jget('https://www.ebi.ac.uk/pdbe/api/mappings/best_structures/'+acc);
+      const hits=bs[acc]||[];
+      if(hits.length){
+        const h=hits[0];
+        pdbId=h.pdb_id.toUpperCase(); pdbChain=h.chain_id;
+        offset=(h.start|0)-(h.unp_start|0);
+        structSrc={kind:'experimental',id:pdbId,chain:pdbChain,
+          resolution:h.resolution,coverage:h.coverage};
+        step('struct','done','\u2713 PDB '+pdbId+' chain '+pdbChain);
+      }
+    }catch(e){/* fall through to AlphaFold */}
+
+    step('coords','run','\u25cf coordinates');
+    if(pdbId){
+      const r=await fetch('https://files.rcsb.org/download/'+pdbId+'.pdb');
+      if(r.ok)coordText=await r.text(); else pdbId=null;
+    }
+    if(!coordText){
+      const af=await jget('https://alphafold.ebi.ac.uk/api/prediction/'+acc);
+      const e0=Array.isArray(af)?af[0]:af;
+      const r=await fetch(e0.pdbUrl);
+      if(!r.ok)throw new Error('AlphaFold coordinates unavailable ('+r.status+')');
+      coordText=await r.text();
+      pdbChain='A'; offset=0;
+      structSrc={kind:'predicted',id:e0.entryId,chain:'A',
+        plddt:e0.globalMetricValue,version:e0.latestVersion};
+      step('struct','done','\u2713 AlphaFold '+e0.entryId+' (predicted)');
+    }
+    step('coords','done','\u2713 coordinates parsed');
+
+    /* geometry */
+    step('calc','run','\u25cf geometry \u0026 exposure');
+    const P=parsePDB(coordText);
+    const target=P.chains[pdbChain]||P.chains[Object.keys(P.chains)[0]]||[];
+    const byRes={};
+    for(const a of target)(byRes[a.seq]=byRes[a.seq]||[]).push(a);
+
+    const ligD=new Array(L).fill(null);
+    const ligNames=[...new Set(P.het.map(a=>a.resn))];
+    if(P.het.length){
+      for(let p=1;p<=L;p++){
+        const ra=byRes[String(p+offset)];
+        if(ra)ligD[p-1]=minDistToHet(ra,P.het);
+      }
+    }
+    let rsa=new Array(L).fill(null);
+    let sasaSkipped=false;
+    if(P.atoms.length<=14000){
+      const area=sasa(P.atoms,92);
+      const idx=new Map(P.atoms.map((a,i)=>[a,i]));
+      for(let p=1;p<=L;p++){
+        const ra=byRes[String(p+offset)];
+        if(!ra)continue;
+        let tot=0;for(const a of ra)tot+=area[idx.get(a)];
+        const aa=seq[p-1]||'X';
+        rsa[p-1]=Math.min(100,100*tot/(MAXASA[aa]||200));
+      }
+    }else sasaSkipped=true;
+    step('calc','done','\u2713 '+P.atoms.length.toLocaleString()+' atoms, '+
+      (sasaSkipped?'exposure skipped':'exposure computed'));
+
+    const vcount=new Array(L).fill(0);
+    for(const k in variants)if(k>=1&&k<=L)vcount[k-1]=variants[k].length;
+    const kd=[...seq].map(c=>KD[c]??0);
+
+    const fin=a=>a.filter(v=>v!==null&&isFinite(v));
+    const rng=a=>{const f=fin(a);return f.length?[Math.min(...f),Math.max(...f)]:null};
+    ST={acc,name:u.proteinDescription?.recommendedName?.fullName?.value||u.uniProtkbId,
+        gene:(u.genes||[{}])[0]?.geneName?.value||'',
+        organism:u.organism?.scientificName||'',seq,L,offset,coordText,
+        structSrc,ligNames,binding,variants,helix,sasaSkipped,
+        atomCount:P.atoms.length,
+        vals:{lig:ligD,rsa:rsa,var:vcount,kd:kd},
+        range:{lig:rng(ligD),rsa:[0,100],var:[0,Math.max(1,...vcount)],kd:[-4.5,4.5]}};
+
+    S('status').classList.remove('show');
+    render();
+    return true;
+  }catch(e){
+    showStatus('<b style="color:#ffb3b3">Could not load this protein.</b><br>'+
+      (e.message||e)+'<br><br><span style="color:#5c6a7d">If this is a network or CORS error, '+
+      'the page needs to reach rest.uniprot.org, www.ebi.ac.uk, files.rcsb.org and '+
+      'alphafold.ebi.ac.uk. Nothing is cached locally.</span>',true);
+    return false;
+  }finally{S('go').disabled=false}
+}
+
+/* ---------- render ---------- */
+function render(){
+  const t=S('titleblock');
+  t.innerHTML=`<h2>${ST.name}</h2><div class="meta">
+    ${ST.gene?'<code>'+ST.gene+'</code> &middot; ':''}<i>${ST.organism}</i> &middot;
+    <code>${ST.acc}</code> &middot; ${ST.L} residues &middot;
+    ${ST.structSrc.kind==='experimental'
+      ? 'structure <code>'+ST.structSrc.id+'</code> chain '+ST.structSrc.chain+
+        (ST.structSrc.resolution?' &middot; '+ST.structSrc.resolution+' \u00c5':'')
+      : 'predicted structure <code>'+ST.structSrc.id+'</code>'}</div>`;
+  t.classList.add('show');
+
+  /* mode availability */
+  const has={lig:ST.range.lig!==null,rsa:!ST.sasaSkipped&&ST.vals.rsa.some(v=>v!==null),
+             var:ST.vals.var.some(v=>v>0),kd:true};
+  document.querySelectorAll('.modes button').forEach(b=>{
+    b.disabled=!has[b.dataset.m];
+    b.title=has[b.dataset.m]?'':'not available for this protein';
+  });
+  if(!has[mode])mode=has.lig?'lig':(has.rsa?'rsa':'kd');
+
+  const compact=ST.L>340;
+  const grid=S('grid'),rib=S('ribbon');
+  grid.className='grid'+(compact?' compact':'');
+  if(!compact){
+    grid.style.gridTemplateColumns='repeat(auto-fill,minmax(26px,1fr))';
+    rib.style.gridTemplateColumns='repeat(auto-fill,minmax(26px,1fr))';
+    rib.style.display='grid';
+  }else{rib.style.display='flex'}
+  grid.innerHTML='';rib.innerHTML='';
+  const inHelix=p=>ST.helix.some(h=>p>=h[0]&&p<=h[1]);
+  for(let p=1;p<=ST.L;p++){
+    const r=document.createElement('div');r.className='rb';
+    if(ST.binding[p]){r.style.background='#6ea8ff';r.title=p+' binds '+ST.binding[p].ligand}
+    else if(inHelix(p)){r.style.background='#2c3b52';r.title=p+' helix'}
+    if(compact)r.style.flex='1';
+    rib.appendChild(r);
+  }
+  for(let p=1;p<=ST.L;p++){
+    const e=document.createElement('div');
+    e.className='res';e.textContent=ST.seq[p-1];e.dataset.p=p;
+    e.title=p+' '+ST.seq[p-1];
+    e.onclick=()=>select(p,true);
+    grid.appendChild(e);
+  }
+  S('ruler').innerHTML=`<span>1</span><span>${ST.L}</span>`;
+  setMode(mode,true);
+  S('main').classList.add('show');
+  S('foot').classList.add('show');
+  renderFooter();
+  boot3D();
+  select(clamp(sel),false);
+}
+const clamp=p=>Math.max(1,Math.min(ST.L,p|0));
+function paint(){
+  const cells=S('grid').children;
+  for(let i=0;i<cells.length;i++){
+    cells[i].style.background=css(i);
+    if(!S('grid').classList.contains('compact'))
+      cells[i].style.color=lum(i)>0.55?'#05080e':'#dfe8f2';
+  }
+}
+function setMode(m,quiet){
+  mode=m;
+  document.querySelectorAll('.modes button').forEach(b=>{
+    const on=b.dataset.m===m;b.classList.toggle('on',on);
+    b.style.background=on?hexc(lerp(RAMPS[m].ramp,.72)):'';
+  });
+  const r=RAMPS[m],rg=ST.range[m]||[0,1];
+  S('rampbar').style.background='linear-gradient(90deg,'+
+    r.ramp.map(c=>`rgb(${c[0]},${c[1]},${c[2]})`).join(',')+')';
+  S('rlo').textContent=(+rg[0]).toFixed(rg[1]>20?0:1)+r.unit;
+  S('rhi').textContent=(+rg[1]).toFixed(rg[1]>20?0:1)+r.unit;
+  S('rname').textContent=r.label;
+  paint();
+  if(viewer)colorAll();
+  if(!quiet)pushURL();
+}
+
+/* ---------- selection ---------- */
+function select(p,user){
+  p=clamp(p);sel=p;
+  const cells=S('grid').children;
+  for(let i=0;i<cells.length;i++)cells[i].classList.toggle('sel',i===p-1);
+  if(user){const c=cells[p-1];if(c&&c.scrollIntoView)c.scrollIntoView({block:'nearest'})}
+  const i=p-1,aa=ST.seq[i],b=ST.binding[p],vs=ST.variants[p]||[],
+        d=ST.vals.lig[i],ex=ST.vals.rsa[i];
+  const pct=v=>v===null||v===undefined?'&mdash;':v.toFixed(0)+'%';
+  const ang=v=>v===null||v===undefined?'&mdash;':v.toFixed(1)+' \u00c5';
+  let story;
+  if(b)story=`Annotated as binding <b style="color:#6ea8ff">${b.ligand}</b>${b.desc?' ('+b.desc+')':''}. Changing this residue interferes with the protein's documented function.`;
+  else if(d!==null&&d<8)story=`Sits ${d.toFixed(1)} \u00c5 from the nearest bound ligand \u2014 close enough to affect it.`;
+  else if(ex!==null&&ex>40)story=`Out on the surface (${ex.toFixed(0)}% exposed)${d!==null?', '+d.toFixed(1)+' \u00c5 from the nearest ligand':''}. Surface changes rarely break chemistry, but they change what the molecule touches.`;
+  else if(ex!==null&&ex<20)story='Buried inside the fold. Changes here tend to destabilise the structure rather than alter activity.';
+  else story='No ligand contact or strong exposure signal at this position.';
+  S('card').innerHTML=`
+   <div class="big"><span class="aa" style="color:${hexc(rgb(i))}">${aa}</span>
+     <span class="nm">${AANAME[aa]||aa} &middot; ${p}</span></div>
+   <span class="tag${b?' acc':''}">${b?'LIGAND BINDING':(ex!==null&&ex<20?'BURIED':(ex!==null?'SURFACE':'POSITION '+p))}</span>
+   <div class="mrow">
+     <span class="k">Distance to ligand</span><span class="v">${ang(d)}</span>
+     <div class="mbar"><i style="width:${d===null?0:100-Math.min(d/(ST.range.lig?ST.range.lig[1]:21)*100,100)}%;background:#49d0b0"></i></div>
+     <div class="src"><button class="why" data-why="lig">how is this measured?</button></div>
+     <span class="k">Surface exposure</span><span class="v">${pct(ex)}</span>
+     <div class="mbar"><i style="width:${ex||0}%;background:#6ea8ff"></i></div>
+     <div class="src"><button class="why" data-why="rsa">how is this measured?</button></div>
+     <span class="k">Known variants here</span><span class="v">${vs.length}</span>
+     <div class="mbar"><i style="width:${Math.min(100,vs.length/(ST.range.var[1]||1)*100)}%;background:#ffb020"></i></div>
+     <div class="src"><button class="why" data-why="var">where is this from?</button></div>
+   </div>
+   <div class="story">${story}</div>
+   ${vs.length?'<div class="vlist">'+vs.map(v=>
+     `<div><b>${v.orig}${p}${v.alt}</b> &mdash; ${(v.desc||'no description').replace(/dbSNP:(\w+)/,'<span style="color:#5c6a7d">dbSNP $1</span>')}</div>`).join('')+'</div>':''}`;
+  wireWhy();
+  markSel();
+  if(user)pushURL();
+}
+
+/* ---------- provenance popovers ---------- */
+const WHY={
+ lig:()=>`<h5>Distance to ligand</h5>Minimum atom-to-atom distance between this residue and the
+   nearest non-water heteroatom group, computed in your browser from
+   ${ST.structSrc.kind==='experimental'?'experimental structure <code>'+ST.structSrc.id+'</code>':
+   'predicted structure <code>'+ST.structSrc.id+'</code>'}.
+   ${ST.ligNames.length?'Ligands present: <code>'+ST.ligNames.join(', ')+'</code>.':
+   'No non-water ligands in this structure.'}
+   <br><br>One structure is one conformation; a protein that changes shape will give different
+   distances in a different state.`,
+ rsa:()=>`<h5>Surface exposure</h5>Shrake&ndash;Rupley solvent-accessible surface area with a
+   1.4&nbsp;&#8491; probe and 92 sphere points per atom, computed in your browser, then divided by
+   the Gly-X-Gly reference maximum for that amino acid (Tien et al. 2013).
+   <br><br>Computed on the whole deposited assembly (${ST.atomCount.toLocaleString()} atoms), so a
+   residue buried at a chain interface reads as buried &mdash; correct for the complex, not for an
+   isolated chain.`,
+ var:()=>`<h5>Known variants</h5>UniProt &ldquo;Natural variant&rdquo; feature annotations for
+   <code>${ST.acc}</code>, fetched live from the UniProt REST API.
+   <br><br>Counts reflect what has been studied and published. A position with many variants may
+   simply have received more attention.`};
+function wireWhy(){
+  document.querySelectorAll('.why').forEach(b=>b.onclick=ev=>{
+    const p=S('pop');p.innerHTML='<span class="x">&times;</span>'+WHY[b.dataset.why]();
+    p.classList.add('show');
+    const r=b.getBoundingClientRect();
+    p.style.top=Math.min(window.innerHeight-230,r.bottom+8)+'px';
+    p.style.left=Math.max(12,Math.min(window.innerWidth-350,r.left-150))+'px';
+    p.querySelector('.x').onclick=()=>p.classList.remove('show');
+    ev.stopPropagation();
+  });
+}
+document.addEventListener('click',e=>{
+  const p=S('pop');
+  if(p.classList.contains('show')&&!p.contains(e.target)&&!e.target.classList.contains('why'))
+    p.classList.remove('show');
+});
+
+/* ---------- 3D ---------- */
+function colorAll(){
+  if(!viewer)return;
+  viewer.setStyle({},{cartoon:{color:'#33415a',opacity:.92}});
+  const bins={};
+  for(let p=1;p<=ST.L;p++){const h=hexQ(p-1);(bins[h]=bins[h]||[]).push(p+ST.offset)}
+  for(const h in bins)viewer.setStyle({chain:ST.structSrc.chain,resi:bins[h]},{cartoon:{color:h}});
+  viewer.setStyle({hetflag:true},{stick:{colorscheme:'cyanCarbon',radius:.16}});
+  prevSel=null;markSel();
+}
+function markSel(){
+  if(!viewer)return;
+  const r=sel+ST.offset;
+  if(prevSel!==null&&prevSel!==r)
+    viewer.setStyle({chain:ST.structSrc.chain,resi:prevSel},
+                    {cartoon:{color:hexQ(prevSel-ST.offset-1)}});
+  viewer.setStyle({chain:ST.structSrc.chain,resi:r},{cartoon:{color:hexQ(sel-1)}});
+  viewer.addStyle({chain:ST.structSrc.chain,resi:r},{sphere:{color:'#ffffff',radius:2.0}});
+  viewer.addStyle({chain:ST.structSrc.chain,resi:r},{stick:{color:'#ffb020',radius:.33}});
+  prevSel=r;viewer.render();
+}
+function boot3D(){
+  const el=S('viewer');
+  if(typeof $3Dmol==='undefined'){
+    S('vmsg').innerHTML='The 3D rendering library did not load. Every number on this page is '+
+      'still computed from the coordinate file.';return;
+  }
+  try{
+    el.innerHTML='';
+    viewer=$3Dmol.createViewer(el,{backgroundColor:'#0b111a'});
+    viewer.addModel(ST.coordText,'pdb');
+    colorAll();viewer.zoomTo();viewer.render();viewer.spin('y',.35);
+    /* bidirectional: clicking the structure selects the residue */
+    viewer.setClickable({},true,atom=>{
+      if(!atom)return;
+      const p=parseInt(atom.resi,10)-ST.offset;
+      if(p>=1&&p<=ST.L){viewer.spin(false);select(p,true)}
+    });
+    S('vmsg').style.display='none';
+  }catch(e){
+    S('vmsg').innerHTML='3D view failed to initialise: '+(e.message||e);
+  }
+}
+
+/* ---------- URL state ---------- */
+let restoring=false;
+function pushURL(){
+  if(restoring)return;
+  location.hash=`acc=${ST.acc}&res=${sel}&mode=${mode}`;
+}
+function readHash(){
+  const h=location.hash.replace(/^#/,''),o={};
+  for(const kv of h.split('&')){const [k,v]=kv.split('=');if(k)o[k]=decodeURIComponent(v||'')}
+  return o;
+}
+
+/* ---------- footer ---------- */
+function renderFooter(){
+  const s=ST.structSrc;
+  S('foot').innerHTML=`
+   <b>What this page computed, and from where.</b> Sequence and annotations: UniProt
+   <code>${ST.acc}</code>, fetched live. Structure:
+   ${s.kind==='experimental'
+     ? 'experimental entry <code>'+s.id+'</code> (chain '+s.chain+
+       (s.resolution?', '+s.resolution+' \u00c5':'')+'), located through the PDBe SIFTS mapping so '+
+       'UniProt and structure numbering are aligned automatically \u2014 offset '+
+       (ST.offset>=0?'+':'')+ST.offset+'.'
+     : 'AlphaFold prediction <code>'+s.id+'</code>'+(s.plddt?', global pLDDT '+s.plddt:'')+
+       '. No experimental structure was mapped to this accession, so distances are measured on a '+
+       'predicted model.'}
+   Distances and solvent accessibility were computed in your browser from those coordinates
+   (${ST.atomCount.toLocaleString()} atoms${ST.sasaSkipped?'; exposure skipped above 14,000 atoms for speed':''}).
+   <br><br>
+   <b>What it does not establish.</b> One structure is one conformation. Variant counts reflect
+   research attention as much as biology. Hydropathy is the Kyte&ndash;Doolittle scale, a
+   property of the amino acid alone, not of its context here. Nothing on this page is a clinical
+   or functional claim.
+   <br><br>
+   <b>Keys.</b> <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span> move one residue,
+   <span class="kbd">&uarr;</span> <span class="kbd">&darr;</span> jump ten,
+   <span class="kbd">1</span>&ndash;<span class="kbd">4</span> switch colour mode.
+   The address bar always holds a link back to exactly what you are looking at.`;
+}
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown',e=>{
+  if(!ST.L)return;
+  if(e.target.tagName==='INPUT')return;
+  const k=e.key;
+  if(k==='ArrowRight'){select(sel+1,true);e.preventDefault()}
+  else if(k==='ArrowLeft'){select(sel-1,true);e.preventDefault()}
+  else if(k==='ArrowUp'){select(sel+10,true);e.preventDefault()}
+  else if(k==='ArrowDown'){select(sel-10,true);e.preventDefault()}
+  else if(['1','2','3','4'].includes(k)){
+    const m=['lig','rsa','var','kd'][+k-1];
+    const b=document.querySelector(`.modes button[data-m="${m}"]`);
+    if(b&&!b.disabled)setMode(m);
+  }
+});
+
+/* ---------- boot ---------- */
+document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{
+  if(!b.disabled)setMode(b.dataset.m)});
+document.querySelectorAll('.ex button').forEach(b=>b.onclick=()=>{
+  S('q').value=b.dataset.q;go()});
+S('go').onclick=()=>go();
+S('q').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+async function go(){
+  const q=S('q').value.trim();if(!q)return;
+  sel=1;const ok=await load(q);
+  if(ok)pushURL();
+}
+document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
+  if(!viewer)return;const m=c.dataset.m;
+  if(m==='spin'){viewer.spin('y',.35);c.classList.add('on')}
+  else if(m==='stop'){viewer.spin(false);
+    document.querySelector('.chip[data-m=spin]').classList.remove('on')}
+  else if(m==='zoom'){viewer.spin(false);
+    viewer.zoomTo({chain:ST.structSrc.chain,resi:sel+ST.offset});viewer.zoom(1.8);viewer.render()}
+  else if(m==='out'){viewer.zoomTo();viewer.render()}
+  else if(m==='surf'){surfOn=!surfOn;c.classList.toggle('on',surfOn);
+    if(surfOn)viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:.7,color:'#7f9ec4'},
+      {chain:ST.structSrc.chain});
+    else viewer.removeAllSurfaces();
+    viewer.render()}
+});
+(async function init(){
+  const h=readHash();
+  const q=h.acc||'P68871';
+  S('q').value=q;
+  restoring=true;
+  const ok=await load(q);
+  if(ok){
+    if(h.mode&&RAMPS[h.mode])setMode(h.mode,true);
+    if(h.res)select(parseInt(h.res,10),false);
+  }
+  restoring=false;
+  if(ok)pushURL();
+})();
+</script>
+</body></html>
