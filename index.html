@@ -247,7 +247,7 @@ function parsePDB(text){
     if(!el)el=(line.slice(12,16).trim()[0]||'C').toUpperCase();
     const a={resn,ch,seq:seqs,x,y,z,el};
     if(rec==='HETATM'&&!WATER.has(resn)&&!AA3[resn]) het.push(a);
-    else if(AA3[resn]){atoms.push(a);(chains[ch]=chains[ch]||[]).push(a)}
+    else if(AA3[resn]){a.aa=AA3[resn];atoms.push(a);(chains[ch]=chains[ch]||[]).push(a)}
   }
   return {atoms,het,chains};
 }
@@ -354,43 +354,75 @@ async function load(query){
       }else if(f.type==='Helix'){helix.push([st,en||st])}
     }
 
-    /* structure mapping via PDBe SIFTS */
+    /* structure mapping via PDBe SIFTS, verified against the sequence.
+       PDBe's top hit is not always the right molecule (p53 -> 9R2Q chain K agrees on
+       only 4.5% of residues), so each candidate is checked before it is accepted. */
     step('struct','run','\u25cf structure mapping');
-    let pdbId=null,pdbChain=null,offset=0,structSrc=null,coordText=null;
+    let pdbId=null,pdbChain=null,offset=0,structSrc=null,coordText=null,parsed=null,agree=0;
+
+    function verify(text,chain,off){
+      const P=parsePDB(text);
+      const tgt=P.chains[chain]; if(!tgt)return null;
+      const byRes={};
+      for(const at of tgt) if(!(at.seq in byRes)) byRes[at.seq]=at.aa;
+      let m=0,x=0;
+      for(let p=1;p<=L;p++){
+        const k=String(p+off), aa=byRes[k];
+        if(aa===undefined)continue;
+        if(aa===seq[p-1])m++; else x++;
+      }
+      const tot=m+x;
+      return {P,agree: tot? m/tot : 0, covered: tot/L};
+    }
+
+    let cands=[];
     try{
       const bs=await jget('https://www.ebi.ac.uk/pdbe/api/mappings/best_structures/'+acc);
-      const hits=bs[acc]||[];
-      if(hits.length){
-        const h=hits[0];
-        pdbId=h.pdb_id.toUpperCase(); pdbChain=h.chain_id;
-        offset=(h.start|0)-(h.unp_start|0);
-        structSrc={kind:'experimental',id:pdbId,chain:pdbChain,
-          resolution:h.resolution,coverage:h.coverage};
-        step('struct','done','\u2713 PDB '+pdbId+' chain '+pdbChain);
+      cands=(bs[acc]||[]).slice(0,5);
+    }catch(e){}
+
+    for(const h of cands){
+      const id=h.pdb_id.toUpperCase(), ch=h.chain_id, off=(h.start|0)-(h.unp_start|0);
+      step('struct','run','\u25cf checking '+id+' chain '+ch);
+      let txt=null;
+      try{
+        const r=await fetch('https://files.rcsb.org/download/'+id+'.pdb');
+        if(r.ok)txt=await r.text();
+      }catch(e){continue}
+      if(!txt)continue;
+      const v=verify(txt,ch,off);
+      if(v && v.agree>=0.9 && v.covered>=0.2){
+        pdbId=id;pdbChain=ch;offset=off;coordText=txt;parsed=v.P;agree=v.agree;
+        structSrc={kind:'experimental',id,chain:ch,resolution:h.resolution,
+                   coverage:h.coverage,agreement:v.agree};
+        step('struct','done','\u2713 PDB '+id+' chain '+ch+
+          ' \u00b7 '+Math.round(v.agree*100)+'% sequence agreement');
+        break;
       }
-    }catch(e){/* fall through to AlphaFold */}
+    }
 
     step('coords','run','\u25cf coordinates');
-    if(pdbId){
-      const r=await fetch('https://files.rcsb.org/download/'+pdbId+'.pdb');
-      if(r.ok)coordText=await r.text(); else pdbId=null;
-    }
     if(!coordText){
+      /* no experimental structure passed verification -> predicted model */
       const af=await jget('https://alphafold.ebi.ac.uk/api/prediction/'+acc);
       const e0=Array.isArray(af)?af[0]:af;
       const r=await fetch(e0.pdbUrl);
-      if(!r.ok)throw new Error('AlphaFold coordinates unavailable ('+r.status+')');
-      coordText=await r.text();
-      pdbChain='A'; offset=0;
-      structSrc={kind:'predicted',id:e0.entryId,chain:'A',
-        plddt:e0.globalMetricValue,version:e0.latestVersion};
-      step('struct','done','\u2713 AlphaFold '+e0.entryId+' (predicted)');
+      if(!r.ok)throw new Error('No verified experimental structure, and AlphaFold coordinates '+
+        'were unavailable ('+r.status+')');
+      coordText=await r.text(); pdbChain='A'; offset=0;
+      const v=verify(coordText,'A',0);
+      parsed=v?v.P:parsePDB(coordText); agree=v?v.agree:0;
+      structSrc={kind:'predicted',id:e0.entryId,chain:'A',plddt:e0.globalMetricValue,
+                 version:e0.latestVersion,agreement:agree,
+                 rejected:cands.length?cands[0].pdb_id.toUpperCase():null};
+      step('struct','done','\u2713 AlphaFold '+e0.entryId+' (predicted)'+
+        (cands.length?' \u2014 experimental hits failed verification':''));
     }
     step('coords','done','\u2713 coordinates parsed');
 
     /* geometry */
     step('calc','run','\u25cf geometry \u0026 exposure');
-    const P=parsePDB(coordText);
+    const P=parsed||parsePDB(coordText);
     const target=P.chains[pdbChain]||P.chains[Object.keys(P.chains)[0]]||[];
     const byRes={};
     for(const a of target)(byRes[a.seq]=byRes[a.seq]||[]).push(a);
@@ -440,7 +472,7 @@ async function load(query){
     ST={acc,name:u.proteinDescription?.recommendedName?.fullName?.value||u.uniProtkbId,
         gene:(u.genes||[{}])[0]?.geneName?.value||'',
         organism:u.organism?.scientificName||'',seq,L,offset,coordText,
-        structSrc,ligNames,binding,variants,helix,sasaSkipped,
+        structSrc,ligNames,binding,variants,helix,sasaSkipped,agreement:agree,
         atomCount:P.atoms.length,coverage,matched,nPts,
         vals:{lig:ligD,rsa:rsa,var:vcount,kd:kd},
         range:{lig:rng(ligD),rsa:[0,100],var:[0,Math.max(1,...vcount)],kd:[-4.5,4.5]}};
@@ -465,7 +497,8 @@ function render(){
     <code>${ST.acc}</code> &middot; ${ST.L} residues &middot;
     ${ST.structSrc.kind==='experimental'
       ? 'structure <code>'+ST.structSrc.id+'</code> chain '+ST.structSrc.chain+
-        (ST.structSrc.resolution?' &middot; '+ST.structSrc.resolution+' \u00c5':'')
+        (ST.structSrc.resolution?' &middot; '+ST.structSrc.resolution+' \u00c5':'')+
+        ' &middot; '+Math.round(ST.agreement*100)+'% sequence match'
       : 'predicted structure <code>'+ST.structSrc.id+'</code>'}</div>`;
   if(ST.coverage<0.8){
     const pct=Math.round(ST.coverage*100);
@@ -694,6 +727,10 @@ function renderFooter(){
      ?'; exposure skipped \u2014 structure above the size limit for in-browser SASA'
      :', '+ST.nPts+' sphere points per atom'}).
    Coordinates cover ${Math.round(ST.coverage*100)}% of the sequence.
+   <br><br>
+   Every candidate structure is checked residue-by-residue against the UniProt sequence before
+   use; entries below 90% agreement are rejected and the next candidate tried, falling back to the
+   AlphaFold model. This matters: for p53 the top-ranked PDBe hit agrees on only 4.5% of residues.
    <br><br>
    <b>What it does not establish.</b> One structure is one conformation. Variant counts reflect
    research attention as much as biology. Hydropathy is the Kyte&ndash;Doolittle scale, a
