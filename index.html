@@ -678,7 +678,9 @@ function renderFooter(){
    property of the amino acid alone, not of its context here. Nothing on this page is a clinical
    or functional claim.
    <br><br>
-   <b>Keys.</b> <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span> move one residue,
+   <b>Keys.</b> Any amino-acid letter jumps to the next residue of that type
+   (<span class="kbd">shift</span> for previous),
+   <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span> move one residue,
    <span class="kbd">&uarr;</span> <span class="kbd">&darr;</span> jump ten,
    <span class="kbd">1</span>&ndash;<span class="kbd">4</span> switch colour mode.
    The address bar always holds a link back to exactly what you are looking at.`;
@@ -693,10 +695,20 @@ document.addEventListener('keydown',e=>{
   else if(k==='ArrowLeft'){select(sel-1,true);e.preventDefault()}
   else if(k==='ArrowUp'){select(sel+10,true);e.preventDefault()}
   else if(k==='ArrowDown'){select(sel-10,true);e.preventDefault()}
+  else if(k==='Home'){select(1,true);e.preventDefault()}
+  else if(k==='End'){select(ST.L,true);e.preventDefault()}
   else if(['1','2','3','4'].includes(k)){
     const m=['lig','rsa','var','kd'][+k-1];
     const b=document.querySelector(`.modes button[data-m="${m}"]`);
     if(b&&!b.disabled)setMode(m);
+  }
+  else if(/^[A-Za-z]$/.test(k)){
+    const L=k.toUpperCase();
+    for(let step=1;step<=ST.L;step++){
+      const p=e.shiftKey?((sel-1-step+ST.L*2)%ST.L)+1:((sel-1+step)%ST.L)+1;
+      if(ST.seq[p-1]===L){select(p,true);break}
+    }
+    e.preventDefault();
   }
 });
 
