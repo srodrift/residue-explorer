@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Live app
+    url: https://srodrift.github.io/residue-explorer/
+    about: Try the protein there before filing — the embedded preview panes block data fetching.
