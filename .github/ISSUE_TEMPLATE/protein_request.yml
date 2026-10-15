@@ -1,0 +1,27 @@
+name: Protein that breaks the app
+description: A protein where the structure mapping, coverage or colour modes misbehave
+labels: ["data"]
+body:
+  - type: input
+    id: accession
+    attributes:
+      label: UniProt accession
+    validations:
+      required: true
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What goes wrong
+      options:
+        - No structure is found at all
+        - A structure loads but the residues look misaligned
+        - Distance or exposure is blank for most of the chain
+        - The sequence track is unreadable at this length
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: Anything else
+      description: If you know the right structure for this protein, say which one.
