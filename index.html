@@ -366,7 +366,7 @@ async function load(query){
   ]).catch(e=>fallback(query,e));
 }
 function fallback(query,e){
-  const E=JSON.parse(EMBEDDED);
+  const E=(typeof EMBEDDED==='string')?JSON.parse(EMBEDDED):EMBEDDED;
   const wanted=(query||'').trim().toUpperCase();
   ST=Object.assign({},E,{offline:true,reason:(e&&e.message)||String(e),
                          asked:(wanted&&wanted!=='P68871')?wanted:null});
