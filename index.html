@@ -585,6 +585,12 @@ function render(){
   t.classList.add('show');
 
   /* mode availability */
+  if(!ST.range){ /* defensive: a missing field must never blank the whole page */
+    const rg=v=>{const f=(v||[]).filter(x=>x!==null&&isFinite(x));
+                 return f.length?[Math.min(...f),Math.max(...f)]:null};
+    ST.range={lig:rg(ST.vals.lig),rsa:[0,100],
+              var:[0,Math.max(1,...(ST.vals.var||[0]))],kd:[-4.5,4.5]};
+  }
   const has={lig:ST.range.lig!==null,rsa:!ST.sasaSkipped&&ST.vals.rsa.some(v=>v!==null),
              var:ST.vals.var.some(v=>v>0),kd:true};
   document.querySelectorAll('.modes button').forEach(b=>{
