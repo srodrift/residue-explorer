@@ -6,7 +6,14 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#070a10;--panel:#0e141e;--line:#1d2635;--ink:#e9eef6;--dim:#93a1b4;--faint:#5c6a7d;
---acc:#ffb020;--ok:#49d0b0;--cool:#6ea8ff;--vio:#b79bff;--bad:#ff6b6b}
+--acc:#ffb020;--ok:#49d0b0;--cool:#6ea8ff;--vio:#b79bff;--bad:#ff6b6b;--view:#0b111a;
+--cellink:#05080e;--cellink2:#dfe8f2}
+:root[data-theme="light"]{--bg:#fbfbfa;--panel:#f2f2ef;--line:#dedede;--ink:#131313;
+--dim:#57575a;--faint:#8c8c90;--acc:#b36b00;--ok:#1d8a74;--cool:#2f6fd0;--vio:#6f4fd0;
+--bad:#c0392b;--view:#ececea;--cellink:#131313;--cellink2:#131313}
+.themebtn{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:10px;
+ font:500 13px ui-sans-serif;padding:10px 13px;cursor:pointer;white-space:nowrap}
+.themebtn:hover{border-color:#3d5273;color:var(--ink)}
 body{background:var(--bg);color:var(--ink);
  font:400 16px/1.6 ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
  -webkit-font-smoothing:antialiased}
@@ -75,7 +82,7 @@ header h1 span{color:var(--faint);font-weight:400}
 .grid.compact .res.sel:after{display:none}
 .ruler{display:flex;justify-content:space-between;color:var(--faint);font-size:11.5px;margin-top:5px}
 
-.vwrap{position:relative;height:420px;background:#0b111a;border:1px solid var(--line);
+.vwrap{position:relative;height:420px;background:var(--view);border:1px solid var(--line);
  border-radius:14px;overflow:hidden;margin-top:18px}
 #viewer{width:100%;height:100%}
 .vmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -131,6 +138,7 @@ footer b{color:var(--dim)}
   <div class="search">
     <input id="q" placeholder="UniProt accession or gene name &mdash; P68871, TP53, lysozyme" spellcheck="false">
     <button id="go">Load</button>
+    <button class="themebtn" id="theme">Light</button>
   </div>
 </header>
 <div class="ex"><b>Try</b>
@@ -203,6 +211,20 @@ const WATER=new Set(['HOH','DOD','WAT','H2O']);
 const PROBE=1.4;
 
 const S=id=>document.getElementById(id);
+function themeColour(v){return getComputedStyle(document.documentElement)
+  .getPropertyValue(v).trim()||'#0b111a'}
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  try{localStorage.setItem('re-theme',t)}catch(e){}
+  const b=S('theme'); if(b)b.textContent = t==='light' ? 'Dark' : 'Light';
+  if(viewer){viewer.setBackgroundColor(themeColour('--view'));viewer.render()}
+  if(ST.L)paint();
+}
+(function(){
+  let t=null; try{t=localStorage.getItem('re-theme')}catch(e){}
+  if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
+  document.documentElement.setAttribute('data-theme',t);
+})();
 let ST={};                       /* current protein state */
 let mode='lig', sel=1, viewer=null, prevSel=null, surfOn=false;
 
@@ -556,7 +578,7 @@ function paint(){
   for(let i=0;i<cells.length;i++){
     cells[i].style.background=css(i);
     if(!S('grid').classList.contains('compact'))
-      cells[i].style.color=lum(i)>0.55?'#05080e':'#dfe8f2';
+      cells[i].style.color=lum(i)>0.55?themeColour('--cellink'):themeColour('--cellink2');
   }
 }
 function setMode(m,quiet){
@@ -681,7 +703,7 @@ function boot3D(){
   }
   try{
     el.innerHTML='';
-    viewer=$3Dmol.createViewer(el,{backgroundColor:'#0b111a'});
+    viewer=$3Dmol.createViewer(el,{backgroundColor:themeColour('--view')});
     viewer.addModel(ST.coordText,'pdb');
     colorAll();viewer.zoomTo();viewer.render();viewer.spin('y',.35);
     /* bidirectional: clicking the structure selects the residue */
@@ -748,7 +770,7 @@ function renderFooter(){
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown',e=>{
   if(!ST.L)return;
-  if(e.target.tagName==='INPUT')return;
+  if(e.target.tagName==='INPUT'||e.target.tagName==='BUTTON')return;
   const k=e.key;
   if(k==='ArrowRight'){select(sel+1,true);e.preventDefault()}
   else if(k==='ArrowLeft'){select(sel-1,true);e.preventDefault()}
@@ -776,6 +798,9 @@ document.querySelectorAll('.modes button').forEach(b=>b.onclick=()=>{
   if(!b.disabled)setMode(b.dataset.m)});
 document.querySelectorAll('.ex button').forEach(b=>b.onclick=()=>{
   S('q').value=b.dataset.q;go()});
+S('theme').onclick=()=>setTheme(
+  document.documentElement.getAttribute('data-theme')==='light'?'dark':'light');
+setTheme(document.documentElement.getAttribute('data-theme')||'dark');
 S('go').onclick=()=>go();
 S('q').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
 async function go(){
