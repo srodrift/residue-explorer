@@ -405,8 +405,14 @@ async function load(query){
     }
     let rsa=new Array(L).fill(null);
     let sasaSkipped=false;
-    if(P.atoms.length<=14000){
-      const area=sasa(P.atoms,92);
+    /* sphere-point count scales down with size so the tab never locks for long;
+       the yield lets the status line paint before the synchronous loop starts. */
+    const nAt=P.atoms.length;
+    const nPts = nAt<=4000 ? 92 : nAt<=9000 ? 46 : nAt<=20000 ? 24 : 0;
+    if(nPts>0){
+      step('calc','run','\u25cf computing exposure over '+nAt.toLocaleString()+' atoms\u2026');
+      await new Promise(r=>setTimeout(r,16));
+      const area=sasa(P.atoms,nPts);
       const idx=new Map(P.atoms.map((a,i)=>[a,i]));
       for(let p=1;p<=L;p++){
         const ra=byRes[String(p+offset)];
@@ -416,12 +422,18 @@ async function load(query){
         rsa[p-1]=Math.min(100,100*tot/(MAXASA[aa]||200));
       }
     }else sasaSkipped=true;
-    step('calc','done','\u2713 '+P.atoms.length.toLocaleString()+' atoms, '+
-      (sasaSkipped?'exposure skipped':'exposure computed'));
+    step('calc','done','\u2713 '+nAt.toLocaleString()+' atoms, '+
+      (sasaSkipped?'exposure skipped (structure too large)'
+                  :'exposure computed at '+nPts+' points/atom'));
 
     const vcount=new Array(L).fill(0);
     for(const k in variants)if(k>=1&&k<=L)vcount[k-1]=variants[k].length;
     const kd=[...seq].map(c=>KD[c]??0);
+
+    /* how many sequence positions actually found coordinates? */
+    let matched=0;
+    for(let p=1;p<=L;p++) if(byRes[String(p+offset)]) matched++;
+    const coverage=matched/L;
 
     const fin=a=>a.filter(v=>v!==null&&isFinite(v));
     const rng=a=>{const f=fin(a);return f.length?[Math.min(...f),Math.max(...f)]:null};
@@ -429,7 +441,7 @@ async function load(query){
         gene:(u.genes||[{}])[0]?.geneName?.value||'',
         organism:u.organism?.scientificName||'',seq,L,offset,coordText,
         structSrc,ligNames,binding,variants,helix,sasaSkipped,
-        atomCount:P.atoms.length,
+        atomCount:P.atoms.length,coverage,matched,nPts,
         vals:{lig:ligD,rsa:rsa,var:vcount,kd:kd},
         range:{lig:rng(ligD),rsa:[0,100],var:[0,Math.max(1,...vcount)],kd:[-4.5,4.5]}};
 
@@ -455,6 +467,13 @@ function render(){
       ? 'structure <code>'+ST.structSrc.id+'</code> chain '+ST.structSrc.chain+
         (ST.structSrc.resolution?' &middot; '+ST.structSrc.resolution+' \u00c5':'')
       : 'predicted structure <code>'+ST.structSrc.id+'</code>'}</div>`;
+  if(ST.coverage<0.8){
+    const pct=Math.round(ST.coverage*100);
+    t.innerHTML+=`<div class="meta" style="color:#ffb020;margin-top:8px">
+      Only ${pct}% of the sequence (${ST.matched} of ${ST.L} residues) has coordinates in this
+      structure, so distance and exposure are blank for the rest. Crystal structures routinely omit
+      disordered loops, tags and termini &mdash; the sequence track still shows every residue.</div>`;
+  }
   t.classList.add('show');
 
   /* mode availability */
@@ -671,7 +690,10 @@ function renderFooter(){
        '. No experimental structure was mapped to this accession, so distances are measured on a '+
        'predicted model.'}
    Distances and solvent accessibility were computed in your browser from those coordinates
-   (${ST.atomCount.toLocaleString()} atoms${ST.sasaSkipped?'; exposure skipped above 14,000 atoms for speed':''}).
+   (${ST.atomCount.toLocaleString()} atoms${ST.sasaSkipped
+     ?'; exposure skipped \u2014 structure above the size limit for in-browser SASA'
+     :', '+ST.nPts+' sphere points per atom'}).
+   Coordinates cover ${Math.round(ST.coverage*100)}% of the sequence.
    <br><br>
    <b>What it does not establish.</b> One structure is one conformation. Variant counts reflect
    research attention as much as biology. Hydropathy is the Kyte&ndash;Doolittle scale, a
