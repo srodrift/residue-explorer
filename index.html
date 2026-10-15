@@ -329,8 +329,21 @@ function sasa(atoms,nPoints){
 const step=(id,cls,txt)=>{const e=S('s-'+id);if(e){e.className=cls;if(txt)e.textContent=txt}};
 function showStatus(html,err){const s=S('status');s.innerHTML=html;
  s.className='show'+(err?' err':'')}
-async function jget(url){
-  const r=await fetch(url,{headers:{'Accept':'application/json'}});
+/* A blocked fetch can hang indefinitely in sandboxed frames instead of rejecting,
+   so every request carries its own abort timer. */
+async function tfetch(url,opts={},ms=6000){
+  const ac=new AbortController();
+  const t=setTimeout(()=>ac.abort(),ms);
+  try{
+    return await fetch(url,Object.assign({},opts,{signal:ac.signal}));
+  }catch(e){
+    throw new Error(e.name==='AbortError'
+      ? url.split('/')[2]+' did not respond within '+(ms/1000)+'s'
+      : 'cannot reach '+url.split('/')[2]);
+  }finally{clearTimeout(t)}
+}
+async function jget(url,ms){
+  const r=await tfetch(url,{headers:{'Accept':'application/json'}},ms);
   if(!r.ok)throw new Error(url.split('/')[2]+' returned '+r.status);
   return r.json();
 }
@@ -346,6 +359,31 @@ async function resolveAccession(q){
 }
 
 async function load(query){
+  return Promise.race([
+    loadInner(query),
+    new Promise((_,rej)=>setTimeout(
+      ()=>rej(new Error('overall timeout \u2014 data services did not respond')),20000))
+  ]).catch(e=>fallback(query,e));
+}
+function fallback(query,e){
+  const E=JSON.parse(EMBEDDED);
+  const wanted=(query||'').trim().toUpperCase();
+  ST=Object.assign({},E,{offline:true,reason:(e&&e.message)||String(e),
+                         asked:(wanted&&wanted!=='P68871')?wanted:null});
+  showStatus('<b style="color:#ffb020">Showing the bundled example instead.</b> '+
+    'This page could not reach the data services, so it loaded the haemoglobin &beta; dataset '+
+    'that ships inside the file \u2014 every value below is real, precomputed from '+
+    'UniProt P68871 and PDB 2HHB. '+
+    ((wanted&&wanted!=='P68871')?'<b>'+wanted+'</b> needs live access. ':'')+
+    '<br><span style="color:#5c6a7d">Reason: '+((e&&e.message)||e)+
+    '. Live lookups need rest.uniprot.org, www.ebi.ac.uk, files.rcsb.org and '+
+    'alphafold.ebi.ac.uk \u2014 embedded preview panes block them. '+
+    'Open this file as a normal page to search any protein.</span>');
+  render();
+  S('go').disabled=false;
+  return true;
+}
+async function loadInner(query){
   S('go').disabled=true;
   S('main').classList.remove('show');S('titleblock').classList.remove('show');
   S('foot').classList.remove('show');
@@ -410,7 +448,7 @@ async function load(query){
       step('struct','run','\u25cf checking '+id+' chain '+ch);
       let txt=null;
       try{
-        const r=await fetch('https://files.rcsb.org/download/'+id+'.pdb');
+        const r=await tfetch('https://files.rcsb.org/download/'+id+'.pdb',{},9000);
         if(r.ok)txt=await r.text();
       }catch(e){continue}
       if(!txt)continue;
@@ -433,7 +471,7 @@ async function load(query){
       /* no experimental structure passed verification -> predicted model */
       const af=await jget('https://alphafold.ebi.ac.uk/api/prediction/'+acc);
       const e0=Array.isArray(af)?af[0]:af;
-      const r=await fetch(e0.pdbUrl);
+      const r=await tfetch(e0.pdbUrl,{},9000);
       if(!r.ok)throw new Error('No verified experimental structure, and AlphaFold coordinates '+
         'were unavailable ('+r.status+')');
       coordText=await r.text(); pdbChain='A'; offset=0;
@@ -507,23 +545,7 @@ async function load(query){
     render();
     return true;
   }catch(e){
-    /* Live fetching is blocked in sandboxed preview panes and offline. Rather than show an
-       error wall, fall back to the dataset bundled with this file so the app is still usable. */
-    const E=JSON.parse(EMBEDDED);
-    const wanted=(query||'').trim().toUpperCase();
-    ST=Object.assign({},E,{offline:true,reason:(e.message||String(e)),
-                           asked:(wanted&&wanted!=='P68871')?wanted:null});
-    showStatus('<b style="color:#ffb020">Showing the bundled example instead.</b> '+
-      'This page could not reach the data services, so it loaded the haemoglobin &beta; dataset '+
-      'that ships inside the file \u2014 every value below is real and precomputed from '+
-      'UniProt P68871 and PDB 2HHB. '+
-      ((wanted&&wanted!=='P68871')?'<b>'+wanted+'</b> needs live access. ':'')+
-      '<br><span style="color:#5c6a7d">Reason: '+(e.message||e)+
-      '. Live lookups need rest.uniprot.org, www.ebi.ac.uk, files.rcsb.org and '+
-      'alphafold.ebi.ac.uk \u2014 embedded preview panes block them. '+
-      'Open this file as a normal page to search any protein.</span>');
-    render();
-    return true;
+    throw e;
   }finally{S('go').disabled=false}
 }
 
