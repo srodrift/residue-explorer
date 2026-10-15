@@ -1,0 +1,29 @@
+name: Bug report
+description: Something renders wrong, computes wrong, or fails to load
+labels: ["bug"]
+body:
+  - type: input
+    id: accession
+    attributes:
+      label: UniProt accession
+      description: Which protein were you looking at? This matters more than anything else.
+      placeholder: P68871
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console output
+      description: Open developer tools, reload, and paste anything in red.
+      render: shell
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome 155 on macOS 15
